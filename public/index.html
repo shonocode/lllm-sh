@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>lllm.sh</title>
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <div id="pwa-banner">
+    <span>Add to Home Screen for offline use</span>
+    <button id="pwa-dismiss" aria-label="Close">&times;</button>
+  </div>
+  <div id="header">
+    <span id="header-title">lllm.sh</span>
+    <span id="header-status"><span class="dot offline"></span>offline</span>
+  </div>
+  <div id="terminal"></div>
+  <div class="copy-toast" id="copy-toast">copied!</div>
+  <div id="attachments" class="hidden"></div>
+  <div id="dropzone" class="hidden">drop text/code files to attach</div>
+  <div id="input-area">
+    <button id="attach-button" type="button" aria-label="Attach file" tabindex="-1">📎</button>
+    <span id="input-prompt">&gt;</span>
+    <input type="text" id="chat-input" placeholder="type /help for commands" disabled autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+    <input type="file" id="file-picker" multiple hidden>
+  </div>
+</div>
+<script type="module" src="/js/app.js"></script>
+</body>
+</html>

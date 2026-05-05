@@ -1,0 +1,13 @@
+{
+  "name": "lllm-sh",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev public",
+    "deploy": "wrangler pages deploy public --project-name=lllm-sh",
+    "icons": "node scripts/gen-icons.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^3",
+    "sharp": "^0.33"
+  }
+}

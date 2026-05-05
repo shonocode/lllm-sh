@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#000"/>
+  <rect x="40" y="40" width="432" height="432" rx="80" fill="none" stroke="#32ff00" stroke-width="12"/>
+  <text x="256" y="240" font-family="monospace" font-weight="bold" font-size="140" fill="#32ff00" text-anchor="middle" letter-spacing="-12">LLLM</text>
+  <line x1="120" y1="282" x2="392" y2="282" stroke="#32ff00" stroke-width="10"/>
+  <text x="256" y="400" font-family="monospace" font-weight="bold" font-size="100" fill="#32ff00" text-anchor="middle">.sh</text>
+</svg>
