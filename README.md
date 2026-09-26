@@ -111,6 +111,8 @@ Or drop `public/` onto any static host (Netlify, Vercel, GitHub Pages, etc.) —
 - **Module layout** — pure ES modules under `public/js/` (`app`, `state`, `terminal`, `runtime`, `commands`, `threads`, `bench`, `perf`, `models`); no build step
 - **Service worker** — network-first for app shell, cache-first for CDN assets, bypass for HuggingFace model downloads (wllama manages those in IndexedDB itself)
 - **iOS quirks** — context window and batch sizes are reduced on iOS to avoid Safari memory limits; history is trimmed more aggressively
+- **Multi-thread wllama** — `public/_headers` sets COOP/COEP (`credentialless`) so the page is cross-origin isolated and wllama can use `SharedArrayBuffer` threads. On other static hosts, set the same two headers or wllama runs single-threaded (the load log shows which)
+- **KV cache quantization** — wllama loads with a `q8_0` KV cache + flash attention (~half the KV memory of f16), falling back to f16 if the model rejects it
 - **WebGPU detection + fallback** — if WebGPU is requested but unavailable or fails, the runtime falls back to wllama automatically
 
 ## License

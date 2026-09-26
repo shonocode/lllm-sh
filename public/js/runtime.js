@@ -126,32 +126,63 @@ async function loadWllamaModel() {
     'multi-thread/wllama.worker.mjs': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/multi-thread/wllama.worker.mjs',
   };
 
-  state.wllamaInstance = new Wllama(CONFIG_PATHS, {
-    useCache: true,
-    allowOffline: true,
-  });
-
   const wllamaModel = MODELS.wllama[state.currentModelIndex] || MODELS.wllama[1];
   const wllamaUrl = wllamaModel.value;
   const wllamaName = wllamaModel.name;
   const wllamaSize = wllamaModel.size;
 
-  const cached = await state.wllamaInstance.cacheManager.getMetadata(wllamaUrl).catch((e) => { console.debug('cache check skipped:', e); return null; });
-  const progressLine = cached
-    ? log('system', 'loading ' + wllamaName + ' from cache...')
-    : log('system', 'downloading ' + wllamaName + ' ' + wllamaSize + '...');
-
-  await state.wllamaInstance.loadModelFromUrl(wllamaUrl, {
-    n_threads: isIOS ? 1 : navigator.hardwareConcurrency || 4,
+  // Multi-thread WASM needs SharedArrayBuffer, which needs cross-origin
+  // isolation (COOP/COEP headers in public/_headers). Without it wllama
+  // silently falls back to single-thread.
+  const nThreads = isIOS || !self.crossOriginIsolated ? 1 : navigator.hardwareConcurrency || 4;
+  const baseConfig = {
+    n_threads: nThreads,
     n_ctx: isIOS ? 512 : 2048,
-    n_batch: isIOS ? 64 : 128,
-    progressCallback: ({ loaded, total }) => {
-      if (total > 0) {
-        const pct = Math.round((loaded / total) * 100);
-        updateLineProgress(progressLine, (cached ? 'loading' : 'downloading') + ' ' + wllamaName + '... ' + pct + '%');
-      }
-    },
-  });
+    n_batch: isIOS ? 64 : 512,
+  };
+  // q8_0 KV cache halves KV memory vs f16 with negligible quality loss.
+  // Quantized V cache requires flash attention in llama.cpp.
+  const kvQuantConfig = { cache_type_k: 'q8_0', cache_type_v: 'q8_0', flash_attn: true };
+
+  let cached = null;
+  let progressLine = null;
+  const tryLoad = async (extraConfig) => {
+    state.wllamaInstance = new Wllama(CONFIG_PATHS, {
+      useCache: true,
+      allowOffline: true,
+    });
+    if (!progressLine) {
+      cached = await state.wllamaInstance.cacheManager.getMetadata(wllamaUrl).catch((e) => { console.debug('cache check skipped:', e); return null; });
+      progressLine = cached
+        ? log('system', 'loading ' + wllamaName + ' from cache...')
+        : log('system', 'downloading ' + wllamaName + ' ' + wllamaSize + '...');
+    }
+    await state.wllamaInstance.loadModelFromUrl(wllamaUrl, {
+      ...baseConfig,
+      ...extraConfig,
+      progressCallback: ({ loaded, total }) => {
+        if (total > 0) {
+          const pct = Math.round((loaded / total) * 100);
+          updateLineProgress(progressLine, (cached ? 'loading' : 'downloading') + ' ' + wllamaName + '... ' + pct + '%');
+        }
+      },
+    });
+  };
+
+  let kvLabel = 'q8_0';
+  try {
+    await tryLoad(kvQuantConfig);
+  } catch (err) {
+    // Some model architectures reject quantized KV / flash attn — retry with defaults.
+    console.warn('wllama load with q8_0 KV failed, retrying with f16:', err);
+    try { await state.wllamaInstance.exit(); } catch (e) { console.debug('wllama exit:', e); }
+    state.wllamaInstance = null;
+    kvLabel = 'f16';
+    await tryLoad({});
+  }
+
+  const mt = state.wllamaInstance.isMultithread();
+  log('system', (mt ? 'multi-thread x' + nThreads : 'single-thread' + (self.crossOriginIsolated ? '' : ' (not cross-origin isolated)')) + ', kv=' + kvLabel + ', ctx=' + baseConfig.n_ctx);
 
   perfLoadDone();
   log('system', 'model loaded: ' + wllamaName);
