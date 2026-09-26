@@ -88,6 +88,7 @@ Open `http://localhost:8788`. The default model (Qwen2.5-0.5B, ~400MB) is **not*
 /voice             toggle speech-to-text input
 /tts               toggle TTS read-aloud of AI replies
 /ctx               show context-window usage
+/ctx <n|auto>      set context window for next load (smaller = less memory)
 /compact           summarize older turns to free up context
 /find <text>       search across all threads
 /fork [n]          fork the current thread (optionally up to message n)
@@ -112,6 +113,8 @@ Or drop `public/` onto any static host (Netlify, Vercel, GitHub Pages, etc.) —
 - **Service worker** — network-first for app shell, cache-first for CDN assets, bypass for HuggingFace model downloads (wllama manages those in IndexedDB itself)
 - **iOS quirks** — context window and batch sizes are reduced on iOS to avoid Safari memory limits; history is trimmed more aggressively
 - **Multi-thread wllama** — `public/_headers` sets COOP/COEP (`credentialless`) so the page is cross-origin isolated and wllama can use `SharedArrayBuffer` threads. On other static hosts, set the same two headers or wllama runs single-threaded (the load log shows which)
+- **Split GGUF** — wllama reads each file into one ArrayBuffer (~2GB cap). For bigger models, split with `llama-gguf-split --split-max-size 512M` and pass the first shard (`...-00001-of-0000N.gguf`) to `/model <url>`; wllama fetches the remaining shards automatically
+- **Context window** — `/ctx <n>` sets `n_ctx` (wllama) / `context_window_size` (web-llm); the KV cache scales linearly with it. Mobile WebGPU defaults to 2048
 - **KV cache quantization** — wllama loads with a `q8_0` KV cache + flash attention (~half the KV memory of f16), falling back to f16 if the model rejects it
 - **WebGPU detection + fallback** — if WebGPU is requested but unavailable or fails, the runtime falls back to wllama automatically
 

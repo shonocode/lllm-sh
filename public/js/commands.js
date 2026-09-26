@@ -1,4 +1,4 @@
-import { state, terminal, chatInput, parseSizeMB, maxModelMBFor } from './state.js';
+import { state, isIOS, terminal, chatInput, parseSizeMB, maxModelMBFor } from './state.js';
 import { MODELS } from './models.js';
 import { log, logRaw } from './terminal.js';
 import { loadModel, switchModel, switchRuntime, loadCustomGGUF, regenerateLast, compactConversation, getContextUsage, generateThreadTitle } from './runtime.js';
@@ -62,6 +62,7 @@ export function showHelp() {
   logRaw('  /voice           toggle speech-to-text input');
   logRaw('  /tts             toggle TTS read-aloud of AI replies');
   logRaw('  /ctx             show context usage');
+  logRaw('  /ctx <n|auto>    set context window (tokens) for next load — smaller = less memory');
   logRaw('  /compact         summarize older turns to free up context');
   logRaw('  /find <text>     search across all threads');
   logRaw('  /fork [n]        fork current thread (optionally up to message n)');
@@ -474,6 +475,24 @@ export async function handleCommand(input) {
     }
 
     case '/ctx': {
+      if (arg) {
+        if (arg.toLowerCase() === 'auto') {
+          state.ctxSize = null;
+          localStorage.removeItem('lllm-sh-ctx-size');
+          log('system', 'context window: auto (per-device default). takes effect on next /load or /model.');
+        } else {
+          const n = parseInt(arg, 10);
+          if (isNaN(n) || n < 256 || n > 32768) {
+            log('error', 'usage: /ctx <256-32768> or /ctx auto');
+            break;
+          }
+          state.ctxSize = n;
+          localStorage.setItem('lllm-sh-ctx-size', String(n));
+          log('system', 'context window: ' + n + ' tokens. takes effect on next /load or /model.');
+          if (isIOS && n > 512) log('system', '⚠ iOS Safari may run out of memory above 512.');
+        }
+        break;
+      }
       const c = getContextUsage();
       const pct = Math.round((c.used / c.limit) * 100);
       log('system', 'context: ' + c.used + '/' + c.limit + ' tokens (~' + pct + '%)');
