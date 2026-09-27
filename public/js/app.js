@@ -203,6 +203,11 @@ window.addEventListener('beforeinstallprompt', (e) => {
   chatInput.focus();
 
   initAttachments();
+
+  // Ask the browser not to evict multi-GB model caches under storage pressure.
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch((e) => { console.debug('storage.persist skipped:', e); });
+  }
 })();
 
 /* ── Service Worker ── */

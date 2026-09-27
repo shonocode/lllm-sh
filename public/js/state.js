@@ -34,6 +34,21 @@ export function maxModelMBFor(runtime, hasWebGPU) {
   return 6144;                   // Desktop WASM has larger headroom
 }
 
+// Context window (tokens) to request at load time. Smaller ctx = smaller KV
+// cache = less RAM/VRAM. `undefined` for webgpu means "use the model's default".
+export function ctxSizeFor(runtime) {
+  if (state.ctxSize) return state.ctxSize;
+  if (runtime === 'wllama') return isIOS ? 512 : 2048;
+  return isMobile ? 2048 : undefined;
+}
+
+// wllama loads each GGUF file into one ArrayBuffer (~2GB cap). Files in
+// gguf-split form (name-00001-of-00003.gguf) are fetched shard by shard.
+export const WLLAMA_SINGLE_FILE_MAX_MB = 2048;
+export function isSplitGGUF(url) {
+  return /-\d{5}-of-\d{5}\.gguf(\?|$)/.test(String(url || ''));
+}
+
 export function deviceLabel() {
   if (isIOS) return 'iOS';
   if (isMobile) return 'mobile';
@@ -56,6 +71,11 @@ export const state = {
     return Number.isFinite(n) && n >= 0 ? n : 1;
   })(),
   perfVisible: false,
+  // User context-window override (tokens); null = per-device default. Applied on next load.
+  ctxSize: (() => {
+    const n = parseInt(localStorage.getItem('lllm-sh-ctx-size'), 10);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })(),
   hasWebGPU: false,
   sampling: (() => {
     const t = parseFloat(localStorage.getItem('lllm-sh-temp'));

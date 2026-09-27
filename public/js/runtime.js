@@ -1,4 +1,4 @@
-import { state, isIOS, chatInput, terminal, parseSizeMB, maxModelMBFor } from './state.js';
+import { state, isIOS, chatInput, terminal, parseSizeMB, maxModelMBFor, ctxSizeFor, isSplitGGUF, WLLAMA_SINGLE_FILE_MAX_MB } from './state.js';
 import { MODELS, loadCustomModels, saveCustomModels } from './models.js';
 import { log, logAi, startAiLine, appendAiToken, finishAiLine, setStatus } from './terminal.js';
 import { perf, perfLoadDone, perfGenStart, perfGenToken, perfGenDone } from './perf.js';
@@ -103,12 +103,17 @@ async function loadWebGPUModel(modelUrl, modelName, modelSize) {
 
   const progressLine = log('system', 'downloading ' + modelName + ' ' + modelSize + '...');
 
+  // Shrinking the context window shrinks the KV cache allocated in VRAM.
+  const ctx = ctxSizeFor('webgpu');
+  const chatOpts = ctx ? { context_window_size: ctx } : undefined;
+
   state.webgpuPipe = await CreateMLCEngine(modelUrl, {
     initProgressCallback: (report) => {
       const pct = report.progress ? Math.round(report.progress * 100) : 0;
       updateLineProgress(progressLine, 'downloading ' + modelName + '... ' + pct + '%');
     },
-  });
+  }, chatOpts);
+  if (ctx) log('system', 'ctx=' + ctx);
 
   perfLoadDone();
   log('system', 'model loaded: ' + modelName + ' via WebGPU');
@@ -126,32 +131,63 @@ async function loadWllamaModel() {
     'multi-thread/wllama.worker.mjs': 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/multi-thread/wllama.worker.mjs',
   };
 
-  state.wllamaInstance = new Wllama(CONFIG_PATHS, {
-    useCache: true,
-    allowOffline: true,
-  });
-
   const wllamaModel = MODELS.wllama[state.currentModelIndex] || MODELS.wllama[1];
   const wllamaUrl = wllamaModel.value;
   const wllamaName = wllamaModel.name;
   const wllamaSize = wllamaModel.size;
 
-  const cached = await state.wllamaInstance.cacheManager.getMetadata(wllamaUrl).catch((e) => { console.debug('cache check skipped:', e); return null; });
-  const progressLine = cached
-    ? log('system', 'loading ' + wllamaName + ' from cache...')
-    : log('system', 'downloading ' + wllamaName + ' ' + wllamaSize + '...');
+  // Multi-thread WASM needs SharedArrayBuffer, which needs cross-origin
+  // isolation (COOP/COEP headers in public/_headers). Without it wllama
+  // silently falls back to single-thread.
+  const nThreads = isIOS || !self.crossOriginIsolated ? 1 : navigator.hardwareConcurrency || 4;
+  const baseConfig = {
+    n_threads: nThreads,
+    n_ctx: ctxSizeFor('wllama'),
+    n_batch: isIOS ? 64 : 512,
+  };
+  // q8_0 KV cache halves KV memory vs f16 with negligible quality loss.
+  // Quantized V cache requires flash attention in llama.cpp.
+  const kvQuantConfig = { cache_type_k: 'q8_0', cache_type_v: 'q8_0', flash_attn: true };
 
-  await state.wllamaInstance.loadModelFromUrl(wllamaUrl, {
-    n_threads: isIOS ? 1 : navigator.hardwareConcurrency || 4,
-    n_ctx: isIOS ? 512 : 2048,
-    n_batch: isIOS ? 64 : 128,
-    progressCallback: ({ loaded, total }) => {
-      if (total > 0) {
-        const pct = Math.round((loaded / total) * 100);
-        updateLineProgress(progressLine, (cached ? 'loading' : 'downloading') + ' ' + wllamaName + '... ' + pct + '%');
-      }
-    },
-  });
+  let cached = null;
+  let progressLine = null;
+  const tryLoad = async (extraConfig) => {
+    state.wllamaInstance = new Wllama(CONFIG_PATHS, {
+      useCache: true,
+      allowOffline: true,
+    });
+    if (!progressLine) {
+      cached = await state.wllamaInstance.cacheManager.getMetadata(wllamaUrl).catch((e) => { console.debug('cache check skipped:', e); return null; });
+      progressLine = cached
+        ? log('system', 'loading ' + wllamaName + ' from cache...')
+        : log('system', 'downloading ' + wllamaName + ' ' + wllamaSize + '...');
+    }
+    await state.wllamaInstance.loadModelFromUrl(wllamaUrl, {
+      ...baseConfig,
+      ...extraConfig,
+      progressCallback: ({ loaded, total }) => {
+        if (total > 0) {
+          const pct = Math.round((loaded / total) * 100);
+          updateLineProgress(progressLine, (cached ? 'loading' : 'downloading') + ' ' + wllamaName + '... ' + pct + '%');
+        }
+      },
+    });
+  };
+
+  let kvLabel = 'q8_0';
+  try {
+    await tryLoad(kvQuantConfig);
+  } catch (err) {
+    // Some model architectures reject quantized KV / flash attn — retry with defaults.
+    console.warn('wllama load with q8_0 KV failed, retrying with f16:', err);
+    try { await state.wllamaInstance.exit(); } catch (e) { console.debug('wllama exit:', e); }
+    state.wllamaInstance = null;
+    kvLabel = 'f16';
+    await tryLoad({});
+  }
+
+  const mt = state.wllamaInstance.isMultithread();
+  log('system', (mt ? 'multi-thread x' + nThreads : 'single-thread' + (self.crossOriginIsolated ? '' : ' (not cross-origin isolated)')) + ', kv=' + kvLabel + ', ctx=' + baseConfig.n_ctx);
 
   perfLoadDone();
   log('system', 'model loaded: ' + wllamaName);
@@ -168,6 +204,9 @@ export async function loadModel() {
   const maxMB = maxModelMBFor(state.currentRuntime, state.hasWebGPU);
   if (mb && maxMB && mb > maxMB) {
     log('system', '⚠ ' + model.name + ' (' + model.size + ') exceeds the recommended ' + maxMB + 'MB limit for this device — load may fail or stall.');
+  }
+  if (state.currentRuntime === 'wllama' && mb > WLLAMA_SINGLE_FILE_MAX_MB && !isSplitGGUF(model.value)) {
+    log('system', '⚠ single GGUF files over 2GB can exceed the browser ArrayBuffer limit. if load fails, use a split GGUF (/model <url to ...-00001-of-0000N.gguf>) or /runtime webgpu.');
   }
 
   perf.loadStart = performance.now();
@@ -271,7 +310,8 @@ export async function loadCustomGGUF(url) {
 
   await unloadCurrentModel();
 
-  const fileName = url.split('/').pop().split('?')[0];
+  // Shards of a split GGUF share one display name; wllama fetches the rest itself.
+  const fileName = url.split('/').pop().split('?')[0].replace(/-\d{5}-of-\d{5}(\.gguf)$/, '$1');
   const existingIdx = MODELS.wllama.findIndex((m) => m.value === url);
   let idx;
   if (existingIdx >= 0) {
@@ -385,8 +425,7 @@ function estimateTokens() {
 }
 
 export function getContextLimit() {
-  if (state.currentRuntime === 'wllama') return isIOS ? 512 : 2048;
-  return 4000;
+  return ctxSizeFor(state.currentRuntime) || 4000;
 }
 
 export function getContextUsage() {

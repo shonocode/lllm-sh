@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lllm-sh-v1';
+const CACHE_NAME = 'lllm-sh-v2';
 
 const PRECACHE_URLS = [
   '/',
