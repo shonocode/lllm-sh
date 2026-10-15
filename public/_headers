@@ -1,0 +1,6 @@
+# Cross-origin isolation → enables SharedArrayBuffer → multi-thread wllama.
+# `credentialless` (not `require-corp`) so CDN/HuggingFace fetches keep working
+# without every host sending Cross-Origin-Resource-Policy.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
