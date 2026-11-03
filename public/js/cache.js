@@ -11,24 +11,28 @@ const WLLAMA_CONFIG = {
   'multi-thread/wllama.worker.mjs': WLLAMA_CDN_BASE + 'multi-thread/wllama.worker.mjs',
 };
 
+/** @type {import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js').Wllama | null} */
 let cacheWllamaInstance = null;
 
 async function getWllamaCacheManager() {
   if (cacheWllamaInstance) return cacheWllamaInstance.cacheManager;
   const { Wllama } = await import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js');
-  cacheWllamaInstance = new Wllama(WLLAMA_CONFIG, { useCache: true, allowOffline: true });
+  cacheWllamaInstance = new Wllama(WLLAMA_CONFIG, { allowOffline: true });
   return cacheWllamaInstance.cacheManager;
 }
 
+/** @returns {Promise<typeof import('@mlc-ai/web-llm')>} */
 async function getWebllmCacheUtil() {
   return await import(WEBLLM_CDN);
 }
 
 // Same id the loader actually downloaded (q4f16 → q4f32 on GPUs without shader-f16).
+/** @param {typeof import('@mlc-ai/web-llm')} webllm @param {string} value */
 function webgpuId(webllm, value) {
   return resolveWebgpuModelId(value, webllm.prebuiltAppConfig.model_list);
 }
 
+/** @param {import('./state.js').Runtime} runtime @param {string} modelValue @returns {Promise<boolean>} */
 export async function isModelCached(runtime, modelValue) {
   try {
     if (runtime === 'wllama') {
@@ -44,6 +48,7 @@ export async function isModelCached(runtime, modelValue) {
   return false;
 }
 
+/** @param {import('./state.js').Runtime} runtime @param {string} modelValue @returns {Promise<number>} bytes (0 if unknown) */
 export async function getCachedSize(runtime, modelValue) {
   try {
     if (runtime === 'wllama') {
@@ -57,6 +62,7 @@ export async function getCachedSize(runtime, modelValue) {
   return 0;
 }
 
+/** @param {import('./state.js').Runtime} runtime @param {import('./state.js').ModelEntry[]} catalog */
 export async function listCachedModels(runtime, catalog) {
   const result = [];
   if (runtime === 'wllama') {
@@ -87,6 +93,7 @@ export async function listCachedModels(runtime, catalog) {
   return result;
 }
 
+/** @param {import('./state.js').Runtime} runtime @param {string} modelValue */
 export async function deleteCachedModel(runtime, modelValue) {
   if (runtime === 'wllama') {
     const cm = await getWllamaCacheManager();
@@ -100,6 +107,7 @@ export async function deleteCachedModel(runtime, modelValue) {
   }
 }
 
+/** @param {import('./state.js').Runtime} runtime */
 export async function clearAllCache(runtime) {
   if (runtime === 'wllama') {
     const cm = await getWllamaCacheManager();
@@ -119,6 +127,7 @@ export async function clearAllCache(runtime) {
   }
 }
 
+/** @param {number} n */
 export function formatBytes(n) {
   if (!n || n < 0) return '?';
   if (n < 1024) return n + 'B';

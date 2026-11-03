@@ -1,3 +1,6 @@
+/// <reference lib="webworker" />
+const sw = /** @type {ServiceWorkerGlobalScope} */ (/** @type {unknown} */ (self));
+
 const CACHE_NAME = 'lllm-sh-v4';
 
 const PRECACHE_URLS = [
@@ -19,18 +22,18 @@ const PRECACHE_URLS = [
   './manifest.json',
 ];
 
-self.addEventListener('install', (event) => {
+sw.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_URLS))
   );
-  self.skipWaiting();
+  sw.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
+sw.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    ).then(() => sw.clients.claim())
   );
 });
 
@@ -38,6 +41,7 @@ self.addEventListener('activate', (event) => {
 // COOP/COEP for cross-origin isolation → SharedArrayBuffer → multi-thread
 // wllama. Inject them on the page itself; on hosts that already send them
 // (public/_headers on Cloudflare Pages) this is a no-op.
+/** @param {Response | undefined} response */
 function withIsolationHeaders(response) {
   if (!response || response.type === 'opaque' || response.status === 0) return response;
   if (response.headers.get('Cross-Origin-Embedder-Policy')) return response;
@@ -47,7 +51,7 @@ function withIsolationHeaders(response) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-self.addEventListener('fetch', (event) => {
+sw.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
   // Let wllama handle model downloads via its own cache (IndexedDB)

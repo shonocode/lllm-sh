@@ -7,10 +7,12 @@ export function loadCustomModels() {
   } catch { return []; }
 }
 
+/** @param {import('./state.js').ModelEntry[]} customs */
 export function saveCustomModels(customs) {
   localStorage.setItem(CUSTOM_KEY, JSON.stringify(customs));
 }
 
+/** @type {{ wllama: import('./state.js').ModelEntry[], webgpu: import('./state.js').ModelEntry[] }} */
 export const MODELS = {
   wllama: [
     // Tiny (≤500MB)

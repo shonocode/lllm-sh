@@ -8,10 +8,14 @@ const MAX_FILE_BYTES = 256 * 1024; // 256KB per file
 const MAX_TOTAL = 8;
 const TEXT_EXT = /\.(txt|md|markdown|json|jsonl|js|mjs|cjs|ts|tsx|jsx|py|rb|go|rs|java|c|cc|cpp|h|hpp|cs|swift|kt|sh|bash|zsh|html|htm|xml|svg|css|scss|less|yaml|yml|toml|ini|cfg|conf|csv|tsv|sql|log|env|gitignore|dockerfile|gradle|properties)$/i;
 
+/** @typedef {{ name: string, content: string }} Attachment */ /** @type {Attachment[]} */
 const attachments = [];
+/** @type {HTMLElement | null} */
 let dropzoneEl = null;
+/** @type {HTMLElement | null} */
 let listEl = null;
 
+/** @param {File} file */
 function isLikelyText(file) {
   if (TEXT_EXT.test(file.name)) return true;
   if (file.type.startsWith('text/')) return true;
@@ -45,6 +49,7 @@ function renderList() {
   });
 }
 
+/** @param {File} file @returns {Promise<Attachment | null>} */
 async function readFile(file) {
   if (!isLikelyText(file)) {
     log('error', 'skipping (not a text file): ' + file.name);
@@ -63,6 +68,7 @@ async function readFile(file) {
   }
 }
 
+/** @param {Iterable<File>} files */
 export async function addFiles(files) {
   for (const f of files) {
     if (attachments.length >= MAX_TOTAL) {
@@ -98,7 +104,7 @@ export function initAttachments() {
   dropzoneEl = document.getElementById('dropzone');
 
   // File picker button (works on iOS where D&D doesn't)
-  const filePicker = document.getElementById('file-picker');
+  const filePicker = /** @type {HTMLInputElement} */ (document.getElementById('file-picker'));
   const attachBtn = document.getElementById('attach-button');
   if (attachBtn && filePicker) {
     attachBtn.addEventListener('click', () => filePicker.click());

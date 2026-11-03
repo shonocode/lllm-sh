@@ -7,6 +7,7 @@ import { log } from './terminal.js';
 const TTS_KEY = 'lllm-sh-tts';
 
 const Recog = window.SpeechRecognition || window.webkitSpeechRecognition;
+/** @type {SpeechRecognitionLike | null} */
 let recognition = null;
 let listening = false;
 
@@ -24,7 +25,7 @@ function ensureRecognition() {
   recognition.continuous = false;
   recognition.interimResults = true;
   recognition.lang = navigator.language || 'en-US';
-  recognition.addEventListener('result', (e) => {
+  recognition.addEventListener('result', (/** @type {SpeechRecognitionResultEventLike} */ e) => {
     let text = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       text += e.results[i][0].transcript;
@@ -32,7 +33,7 @@ function ensureRecognition() {
     chatInput.value = text;
   });
   recognition.addEventListener('end', () => { listening = false; updateInputUi(); });
-  recognition.addEventListener('error', (e) => {
+  recognition.addEventListener('error', (/** @type {SpeechRecognitionErrorEventLike} */ e) => {
     listening = false;
     updateInputUi();
     log('error', 'voice: ' + (e.error || 'unknown'));
@@ -65,6 +66,7 @@ let ttsEnabled = localStorage.getItem(TTS_KEY) === '1';
 
 export function isTTSEnabled() { return ttsEnabled; }
 
+/** @param {boolean} on */
 export function setTTSEnabled(on) {
   ttsEnabled = !!on;
   if (ttsEnabled) localStorage.setItem(TTS_KEY, '1');
@@ -72,6 +74,7 @@ export function setTTSEnabled(on) {
   if (!ttsEnabled && 'speechSynthesis' in window) speechSynthesis.cancel();
 }
 
+/** @param {string} text */
 export function speak(text) {
   if (!ttsEnabled || !('speechSynthesis' in window) || !text) return;
   // Strip code blocks and markdown that don't speak well

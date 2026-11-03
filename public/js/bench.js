@@ -16,6 +16,7 @@ export async function runBenchmark() {
   chatInput.disabled = true;
   startAiLine();
 
+  /** @type {import('./state.js').ChatMessage[]} */
   const benchMessages = [
     { role: 'system', content: 'You are a helpful assistant. Be concise.' },
     { role: 'user', content: benchPrompt },
@@ -73,6 +74,7 @@ export async function runBenchmark() {
   logRaw('');
 }
 
+/** Compare two wllama models on the same prompt. @param {number} idxA @param {number} idxB  0-based catalog indexes */
 export async function runDiff(idxA, idxB) {
   if (state.generating) { log('error', 'already generating.'); return; }
   if (state.loading) { log('error', 'a model is still loading.'); return; }
@@ -98,7 +100,9 @@ export async function runDiff(idxA, idxB) {
   chatInput.disabled = true;
   const results = [];
   try {
-    for (const [label, idx, model] of [['A', idxA, modelA], ['B', idxB, modelB]]) {
+    /** @type {[string, number, import('./state.js').ModelEntry][]} */
+    const runs = [['A', idxA, modelA], ['B', idxB, modelB]];
+    for (const [label, idx, model] of runs) {
       log('system', 'loading ' + model.name + '...');
       await unloadCurrentModel();
       state.currentModelIndex = idx;
@@ -113,6 +117,7 @@ export async function runDiff(idxA, idxB) {
         continue;
       }
 
+      /** @type {import('./state.js').ChatMessage[]} */
       const diffMessages = [
         { role: 'system', content: 'You are a helpful assistant. Be concise.' },
         { role: 'user', content: diffPrompt },

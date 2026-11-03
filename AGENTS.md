@@ -9,6 +9,12 @@ the constraints that aren't obvious from the code.
   `public/`. Do not add Vite, webpack, TypeScript, or any compilation step.
   External libs (`@wllama/wllama`, `@mlc-ai/web-llm`) load via dynamic
   `import('https://cdn.jsdelivr.net/...')` at runtime.
+- **Types are JSDoc, checked by `npm run typecheck`.** `tsc` runs with
+  `checkJs` + `noImplicitAny` and emits nothing (CI: `typecheck.yml`). Annotate
+  new functions with `@param`/`@returns`; shared shapes (`ChatMessage`,
+  `ModelEntry`, `AppState`, `Runtime`) are `@typedef`s in `state.js`, `Thread`
+  in `threads.js`; browser APIs missing from lib.dom go in `types/globals.d.ts`.
+  The two libs are devDependencies **for types only**.
 - **No backend.** This is a serverless static site. Any feature that needs a
   server (web search, OAuth, sync) must be either skipped or BYOK-style with a
   user-provided endpoint URL — never silently introduce a proxy.
@@ -86,6 +92,12 @@ public/
   reference same-origin assets as `/foo` — use `foo` / `./foo` in HTML, the
   manifest, `sw.js` and `fetch`/`register` calls.
 
+- **Bumping wllama / web-llm.** Versions are pinned in several places that must
+  move together: the CDN URLs (`runtime.js`, `cache.js`, `WEBLLM_CDN` in
+  `state.js`, the wllama URL used in JSDoc `import(...)` types), `paths` in
+  `tsconfig.json`, and `devDependencies`. Re-verify every `MODELS.webgpu`
+  id against the new `prebuiltAppConfig`.
+
 ## How to add things
 
 - **A new slash command:** add the literal to `COMMANDS` array in
@@ -105,7 +117,7 @@ public/
 
 ## Out of scope (intentionally)
 
-- Build tooling, TypeScript, JSX, bundlers
+- Build tooling, TypeScript source files (`.ts`), JSX, bundlers — JSDoc types only
 - Backend / server / proxy of any kind
 - API keys for external services baked into the code
 - Image/video generation models (too heavy for browser)

@@ -1,3 +1,39 @@
+/**
+ * @typedef {'wllama' | 'webgpu'} Runtime
+ * @typedef {'system' | 'user' | 'assistant'} Role
+ * @typedef {{ role: Role, content: string }} ChatMessage
+ *
+ * @typedef {object} ModelEntry
+ * @property {string} value   wllama: GGUF URL · webgpu: MLC model_id
+ * @property {string} name
+ * @property {string} size    '~400MB' / '~1.6GB' (webgpu: VRAM requirement)
+ * @property {string[]} [tags] e.g. 'reasoning', 'code'
+ * @property {boolean} [custom] user-added GGUF
+ *
+ * @typedef {object} Sampling
+ * @property {number} temp
+ * @property {number} top_p
+ * @property {number | null} seed
+ *
+ * @typedef {object} AppState
+ * @property {string} systemPrompt          base prompt (persona/memory compose on top)
+ * @property {ChatMessage[]} messages       shared by reference with the active thread
+ * @property {boolean} ready
+ * @property {boolean} loading
+ * @property {boolean} generating
+ * @property {boolean} cancelRequested
+ * @property {AbortController | null} abortController
+ * @property {import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js').Wllama | null} wllamaInstance
+ * @property {import('@mlc-ai/web-llm').MLCEngineInterface | null} webgpuPipe
+ * @property {Runtime} currentRuntime
+ * @property {number} currentModelIndex
+ * @property {boolean} perfVisible
+ * @property {number | null} ctxSize        user /ctx override (tokens)
+ * @property {boolean} hasWebGPU
+ * @property {boolean} hasShaderF16
+ * @property {Sampling} sampling
+ */
+
 // Platform detection
 export const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -6,7 +42,7 @@ export const isMobile = isIOS || /Android/i.test(navigator.userAgent) ||
 
 // DOM refs
 export const terminal = document.getElementById('terminal');
-export const chatInput = document.getElementById('chat-input');
+export const chatInput = /** @type {HTMLInputElement} */ (document.getElementById('chat-input'));
 export const headerStatus = document.getElementById('header-status');
 export const copyToast = document.getElementById('copy-toast');
 
@@ -14,6 +50,7 @@ export const copyToast = document.getElementById('copy-toast');
 export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful assistant. Reply concisely and clearly. You can respond in Japanese if the user writes in Japanese.';
 
 // Parse model size string ("~400MB", "~1.7GB") → MB number
+/** @param {string | undefined} s @returns {number} */
 export function parseSizeMB(s) {
   const m = String(s || '').match(/([\d.]+)\s*(GB|MB|KB)?/i);
   if (!m) return 0;
@@ -30,6 +67,11 @@ export const WEBLLM_CDN = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.87/+
 
 // q4f16 kernels need the WebGPU `shader-f16` feature. Without it, use the
 // q4f32 build of the same model when web-llm ships one.
+/**
+ * @param {string} id
+ * @param {{ model_id: string }[]} modelList  web-llm prebuiltAppConfig.model_list
+ * @returns {string}
+ */
 export function resolveWebgpuModelId(id, modelList) {
   if (state.hasShaderF16 || !id.includes('q4f16_1')) return id;
   const alt = id.replace('q4f16_1', 'q4f32_1');
@@ -38,6 +80,7 @@ export function resolveWebgpuModelId(id, modelList) {
 
 // Heuristic device capability — used to flag models that likely won't run.
 // Numbers are quantized model file size in MB; actual RAM use is ~1.2-1.5x.
+/** @param {Runtime} runtime @param {boolean} hasWebGPU @returns {number} */
 export function maxModelMBFor(runtime, hasWebGPU) {
   if (runtime === 'webgpu') return hasWebGPU ? 4096 : 0;
   // wllama / WASM
@@ -48,6 +91,7 @@ export function maxModelMBFor(runtime, hasWebGPU) {
 
 // Context window (tokens) to request at load time. Smaller ctx = smaller KV
 // cache = less RAM/VRAM. `undefined` for webgpu means "use the model's default".
+/** @param {Runtime} runtime @returns {number | undefined} */
 export function ctxSizeFor(runtime) {
   if (state.ctxSize) return state.ctxSize;
   if (runtime === 'wllama') return isIOS ? 512 : 2048;
@@ -57,6 +101,7 @@ export function ctxSizeFor(runtime) {
 // wllama loads each GGUF file into one ArrayBuffer (~2GB cap). Files in
 // gguf-split form (name-00001-of-00003.gguf) are fetched shard by shard.
 export const WLLAMA_SINGLE_FILE_MAX_MB = 2048;
+/** @param {string} url */
 export function isSplitGGUF(url) {
   return /-\d{5}-of-\d{5}\.gguf(\?|$)/.test(String(url || ''));
 }
@@ -68,6 +113,7 @@ export function deviceLabel() {
 }
 
 // Mutable state - use an object so mutations are visible across modules
+/** @type {AppState} */
 export const state = {
   systemPrompt: localStorage.getItem('lllm-sh-system-prompt') || DEFAULT_SYSTEM_PROMPT,
   messages: [{ role: 'system', content: localStorage.getItem('lllm-sh-system-prompt') || DEFAULT_SYSTEM_PROMPT }],
@@ -78,7 +124,7 @@ export const state = {
   abortController: null,
   wllamaInstance: null,
   webgpuPipe: null,
-  currentRuntime: localStorage.getItem('lllm-sh-runtime') || 'wllama',
+  currentRuntime: localStorage.getItem('lllm-sh-runtime') === 'webgpu' ? 'webgpu' : 'wllama',
   currentModelIndex: (() => {
     const n = parseInt(localStorage.getItem('lllm-sh-model-index'), 10);
     return Number.isFinite(n) && n >= 0 ? n : 1;

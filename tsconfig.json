@@ -1,0 +1,24 @@
+{
+  // Type-check only — nothing is emitted. public/ is still served as-is.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    // Runtime imports come straight from jsDelivr; point the type checker at
+    // the same pinned versions installed as devDependencies.
+    "paths": {
+      "https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js": ["./node_modules/@wllama/wllama/esm/index.d.ts"]
+    }
+  },
+  "include": ["public/js/**/*.js", "types/**/*.d.ts"]
+}

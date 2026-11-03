@@ -4,10 +4,14 @@
   "scripts": {
     "dev": "wrangler pages dev public",
     "deploy": "wrangler pages deploy public --project-name=lllm-sh",
-    "icons": "node scripts/gen-icons.mjs"
+    "icons": "node scripts/gen-icons.mjs",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.sw.json"
   },
   "devDependencies": {
-    "wrangler": "^3",
-    "sharp": "^0.33"
+    "@mlc-ai/web-llm": "0.2.87",
+    "@wllama/wllama": "2.3.7",
+    "sharp": "^0.33",
+    "typescript": "5.9.3",
+    "wrangler": "^3"
   }
 }

@@ -30,7 +30,14 @@ export async function unloadCurrentModel() {
   setStatus('loading', 'loading...');
 }
 
-export async function runWllamaCompletion(instance, messages, { maxTokens = 512, onToken, cancellable = true } = {}) {
+/**
+ * Run one chat completion on wllama and return the final text.
+ * @param {import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js').Wllama} instance
+ * @param {import('./state.js').ChatMessage[]} messages
+ * @param {{ maxTokens?: number, onToken?: (text: string) => void, cancellable?: boolean }} [opts]
+ * @returns {Promise<string>}
+ */
+export async function runWllamaCompletion(instance, messages, { maxTokens = 512, onToken = undefined, cancellable = true } = {}) {
   // Use the chat template embedded in the GGUF (Gemma, Llama, Phi, … all
   // differ); fall back to ChatML only if the model has none.
   let prompt;
@@ -50,6 +57,7 @@ export async function runWllamaCompletion(instance, messages, { maxTokens = 512,
   const controller = cancellable ? new AbortController() : null;
   if (cancellable) state.abortController = controller;
 
+  /** @type {{ temp: number, top_p: number, seed?: number }} */
   const sampling = { temp: state.sampling.temp, top_p: state.sampling.top_p };
   if (state.sampling.seed != null) sampling.seed = state.sampling.seed;
 
@@ -93,6 +101,7 @@ export async function runWllamaCompletion(instance, messages, { maxTokens = 512,
 
 /* ── Model loading ── */
 
+/** @param {HTMLElement | null} line @param {string} label */
 function updateLineProgress(line, label) {
   if (!line) return;
   const content = line.querySelector('.content');
@@ -106,8 +115,10 @@ function markModelReady() {
   chatInput.focus();
 }
 
+/** @param {string} modelUrl MLC model_id @param {string} modelName @param {string} modelSize */
 async function loadWebGPUModel(modelUrl, modelName, modelSize) {
   log('system', 'loading web-llm...');
+  /** @type {typeof import('@mlc-ai/web-llm')} */
   const { CreateMLCEngine, prebuiltAppConfig } = await import(WEBLLM_CDN);
 
   const modelId = resolveWebgpuModelId(modelUrl, prebuiltAppConfig.model_list);
@@ -159,18 +170,19 @@ async function loadWllamaModel() {
   };
   // q8_0 KV cache halves KV memory vs f16 with negligible quality loss.
   // Quantized V cache requires flash attention in llama.cpp.
+  /** @type {import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js').LoadModelConfig} */
   const kvQuantConfig = { cache_type_k: 'q8_0', cache_type_v: 'q8_0', flash_attn: true };
 
+  /** @type {object | null} */
   let cached = null;
   let downloaded = false;
+  /** @type {HTMLDivElement | null} */
   let progressLine = null;
+  /** @param {import('https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/index.js').LoadModelConfig} extraConfig @returns {Promise<void>} */
   const tryLoad = async (extraConfig) => {
-    state.wllamaInstance = new Wllama(CONFIG_PATHS, {
-      useCache: true,
-      allowOffline: true,
-    });
+    state.wllamaInstance = new Wllama(CONFIG_PATHS, { allowOffline: true });
     if (!progressLine) {
-      cached = await state.wllamaInstance.cacheManager.getMetadata(wllamaUrl).catch((e) => { console.debug('cache check skipped:', e); return null; });
+      cached = await state.wllamaInstance.cacheManager.getMetadata(wllamaUrl).catch((/** @type {unknown} */ e) => { console.debug('cache check skipped:', e); return /** @type {null} */ (null); });
       progressLine = cached
         ? log('system', 'loading ' + wllamaName + ' from cache...')
         : log('system', 'downloading ' + wllamaName + ' ' + wllamaSize + '...');
@@ -269,6 +281,7 @@ async function loadModelInner() {
   }
 }
 
+/** @param {number} index 0-based index into the current runtime's catalog */
 export async function switchModel(index) {
   if (state.loading) { log('error', 'a model is still loading — wait for it to finish.'); return; }
   const catalog = MODELS[state.currentRuntime];
@@ -298,6 +311,7 @@ export async function switchModel(index) {
   }
 }
 
+/** @param {string} rt */
 export async function switchRuntime(rt) {
   if (state.loading) { log('error', 'a model is still loading — wait for it to finish.'); return; }
   if (rt !== 'wllama' && rt !== 'webgpu') {
@@ -330,6 +344,7 @@ export async function switchRuntime(rt) {
   }
 }
 
+/** @param {string} url */
 export async function loadCustomGGUF(url) {
   if (state.loading) { log('error', 'a model is still loading — wait for it to finish.'); return; }
   if (!url.endsWith('.gguf')) {
@@ -373,6 +388,7 @@ export async function loadCustomGGUF(url) {
 export async function generateWebGPU() {
   perfGenStart();
   try {
+    /** @type {import('@mlc-ai/web-llm').ChatCompletionRequestStreaming} */
     const opts = {
       stream: true,
       messages: buildModelMessages(),
@@ -428,6 +444,7 @@ export async function generateWllama() {
   maybeAutoTitle().catch((e) => console.warn('auto-title:', e));
 }
 
+/** @param {string} text */
 export async function sendMessage(text) {
   state.generating = true;
   state.cancelRequested = false;
@@ -483,6 +500,7 @@ export async function compactConversation() {
   // Carry earlier /compact summaries forward — they're replaced below.
   const priorSummaries = state.messages.slice(1).filter((m) => m.role === 'system').map((m) => m.content);
   const transcript = [...priorSummaries, ...older.map((m) => (m.role === 'user' ? 'User: ' : 'Assistant: ') + m.content)].join('\n\n');
+  /** @type {import('./state.js').ChatMessage[]} */
   const summaryMessages = [
     { role: 'system', content: 'You are a precise summarizer. Output under 150 words capturing key facts, decisions, and unresolved questions. No commentary, no preamble.' },
     { role: 'user', content: 'Summarize this conversation:\n\n' + transcript },
@@ -541,6 +559,7 @@ export async function generateThreadTitle() {
   const firstAssistant = state.messages.find((m) => m.role === 'assistant');
   if (!firstUser || !firstAssistant) return;
 
+  /** @type {import('./state.js').ChatMessage[]} */
   const titleMessages = [
     { role: 'system', content: 'Output ONLY a 3-6 word title for the conversation. No quotes, no trailing punctuation, no preamble.' },
     { role: 'user', content: 'User: ' + firstUser.content.slice(0, 300) + '\nAssistant: ' + firstAssistant.content.slice(0, 400) + '\n\nTitle:' },

@@ -16,6 +16,7 @@ let inputHistory = (() => {
 let historyIndex = inputHistory.length;
 let historyDraft = '';
 
+/** @param {string} text */
 function pushHistory(text) {
   if (inputHistory[inputHistory.length - 1] === text) return;
   inputHistory.push(text);
@@ -25,6 +26,7 @@ function pushHistory(text) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(inputHistory));
 }
 
+/** @param {string[]} strs */
 function commonPrefix(strs) {
   if (!strs.length) return '';
   let p = strs[0];
@@ -115,7 +117,7 @@ chatInput.addEventListener('keydown', (e) => {
 
 /* ── Copy ai message on click ── */
 terminal.addEventListener('click', (e) => {
-  const line = e.target.closest('.line');
+  const line = /** @type {Element} */ (e.target).closest('.line');
   if (!line || state.generating) return;
   const pfx = line.querySelector('.prefix.ai');
   if (!pfx) return;
@@ -141,10 +143,11 @@ pwaDismiss.addEventListener('click', (e) => {
   localStorage.setItem('lllm-sh-pwa-dismissed', '1');
 });
 
+/** @type {BeforeInstallPromptEvent | null} */
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
-  deferredInstallPrompt = e;
+  deferredInstallPrompt = /** @type {BeforeInstallPromptEvent} */ (e);
   if (!localStorage.getItem('lllm-sh-pwa-dismissed')) {
     pwaBanner.classList.add('visible');
     pwaBanner.querySelector('span').textContent = 'Install as app for offline use';

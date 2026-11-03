@@ -112,6 +112,7 @@ Other static hosts work too (no server-side component). `public/_headers` sets C
 ## Tech notes
 
 - **Module layout** — pure ES modules under `public/js/` (`app`, `state`, `terminal`, `runtime`, `commands`, `threads`, `bench`, `perf`, `models`); no build step
+- **Types** — JSDoc annotations checked by `npm run typecheck` (`tsc --noEmit` with `checkJs`); runs in CI on every push/PR. Nothing is compiled — `public/` ships as-is
 - **Service worker** — network-first for app shell, cache-first for CDN assets, bypass for HuggingFace model downloads (wllama manages those in IndexedDB itself)
 - **iOS quirks** — context window and batch sizes are reduced on iOS to avoid Safari memory limits; fewer recent turns are sent to the model (the saved thread keeps full history)
 - **Multi-thread wllama** — `public/_headers` sets COOP/COEP (`credentialless`) so the page is cross-origin isolated and wllama can use `SharedArrayBuffer` threads. On other static hosts, set the same two headers or wllama runs single-threaded (the load log shows which)
