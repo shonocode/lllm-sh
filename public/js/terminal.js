@@ -1,11 +1,14 @@
 import { terminal, headerStatus } from './state.js';
 
+/** @type {HTMLElement | null} */
 let currentAiLine = null;
+/** @type {HTMLElement | null} */
 let currentAiContent = null;
 let currentAiText = '';
 
 /* Minimal markdown renderer: fenced code blocks, inline code, bold, <think>...</think>.
    Built with createElement (no innerHTML) for XSS safety. */
+/** @param {string} text @returns {DocumentFragment} */
 function renderInline(text) {
   const frag = document.createDocumentFragment();
   let i = 0;
@@ -42,6 +45,7 @@ function renderInline(text) {
 
 const RUNNABLE_LANGS = new Set(['js', 'javascript', 'html', 'svg']);
 
+/** @param {string} lang @param {string} code @returns {HTMLIFrameElement} */
 function buildArtifactIframe(lang, code) {
   const iframe = document.createElement('iframe');
   iframe.className = 'artifact-frame';
@@ -54,7 +58,8 @@ function buildArtifactIframe(lang, code) {
   } else { // js / javascript
     iframe.sandbox = 'allow-scripts';
     // Escape sequences that would prematurely terminate the wrapping <script> tag.
-    const safeCodeLiteral = JSON.stringify(code).replace(/<\/(script|!--)/gi, '<\\/$1');
+    // Escape every '<' so no `</script>` or `<!--` can reach the HTML parser.
+    const safeCodeLiteral = JSON.stringify(code).replace(/</g, '\\u003c');
     const closeScript = '<' + '/script>';
     const wrapped = `<!doctype html><html><head><style>body{margin:0;font-family:monospace;background:#000;color:#32ff00;padding:8px;font-size:12px;line-height:1.4}#o{margin:0;white-space:pre-wrap;word-break:break-word}</style></head><body><pre id="o"></pre><script>
 (function(){
@@ -74,6 +79,7 @@ try {
   return iframe;
 }
 
+/** @param {string} lang @param {string} code @returns {HTMLElement} */
 function makeArtifact(lang, code) {
   const wrap = document.createElement('div');
   wrap.className = 'artifact';
@@ -100,6 +106,7 @@ function makeArtifact(lang, code) {
   return wrap;
 }
 
+/** @param {string} text @returns {DocumentFragment} */
 function renderBlocks(text) {
   const frag = document.createDocumentFragment();
   const fenced = /```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g;
@@ -124,6 +131,7 @@ function renderBlocks(text) {
   return frag;
 }
 
+/** @param {string} text @returns {DocumentFragment} */
 function renderMarkdown(text) {
   const frag = document.createDocumentFragment();
   const think = /<think>([\s\S]*?)(?:<\/think>|$)/g;
@@ -141,6 +149,7 @@ function renderMarkdown(text) {
   return frag;
 }
 
+/** @param {string} prefix CSS class / label: 'system' | 'you' | 'error' | … ('' = none) @param {string} text @returns {HTMLDivElement} */
 export function log(prefix, text) {
   const line = document.createElement('div');
   line.className = 'line';
@@ -161,6 +170,7 @@ export function log(prefix, text) {
   return line;
 }
 
+/** @param {string} text */
 export function logAscii(text) {
   const line = document.createElement('div');
   line.className = 'line ascii';
@@ -169,6 +179,7 @@ export function logAscii(text) {
   scrollToBottom();
 }
 
+/** @param {string} text */
 export function logRaw(text) {
   const line = document.createElement('div');
   line.className = 'line';
@@ -196,16 +207,22 @@ export function startAiLine() {
   return line;
 }
 
+/** @param {string} text */
 export function logAi(text) {
   startAiLine();
   appendAiToken(text);
   finishAiLine();
 }
 
+/** @param {string} text */
 export function appendAiToken(text) {
   if (!currentAiContent) startAiLine();
   currentAiText += text;
-  currentAiContent.textContent += text;
+  // Append to one text node instead of `textContent +=` (which rebuilds the
+  // whole node per token → quadratic on long replies).
+  const node = currentAiContent.lastChild;
+  if (node instanceof Text) node.appendData(text);
+  else currentAiContent.appendChild(document.createTextNode(text));
   scrollToBottom();
 }
 
@@ -225,12 +242,17 @@ export function finishAiLine() {
   currentAiText = '';
 }
 
+let scrollPending = false;
 export function scrollToBottom() {
+  if (scrollPending) return;
+  scrollPending = true;
   requestAnimationFrame(() => {
+    scrollPending = false;
     terminal.scrollTop = terminal.scrollHeight;
   });
 }
 
+/** @param {'ready' | 'loading' | 'offline'} statusState @param {string} [label] */
 export function setStatus(statusState, label) {
   const dot = headerStatus.querySelector('.dot');
   dot.className = 'dot ' + statusState;

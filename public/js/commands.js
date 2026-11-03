@@ -115,6 +115,7 @@ function exportConversation() {
   log('system', 'conversation exported.');
 }
 
+/** @param {string} input raw line starting with '/' */
 export async function handleCommand(input) {
   const parts = input.trim().split(/\s+/);
   const cmd = parts[0].toLowerCase();
@@ -271,7 +272,7 @@ export async function handleCommand(input) {
 
     case '/diff':
       if (arg) {
-        const nums = arg.split(/\s+/).map(s => parseInt(s, 10));
+        const nums = arg.split(/\s+/).map((s) => parseInt(s, 10));
         if (nums.length === 2 && nums.every(n => !isNaN(n) && n >= 1)) {
           await runDiff(nums[0] - 1, nums[1] - 1);
         } else {

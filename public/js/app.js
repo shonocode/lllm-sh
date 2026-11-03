@@ -16,6 +16,7 @@ let inputHistory = (() => {
 let historyIndex = inputHistory.length;
 let historyDraft = '';
 
+/** @param {string} text */
 function pushHistory(text) {
   if (inputHistory[inputHistory.length - 1] === text) return;
   inputHistory.push(text);
@@ -25,6 +26,7 @@ function pushHistory(text) {
   localStorage.setItem(HISTORY_KEY, JSON.stringify(inputHistory));
 }
 
+/** @param {string[]} strs */
 function commonPrefix(strs) {
   if (!strs.length) return '';
   let p = strs[0];
@@ -115,7 +117,7 @@ chatInput.addEventListener('keydown', (e) => {
 
 /* ── Copy ai message on click ── */
 terminal.addEventListener('click', (e) => {
-  const line = e.target.closest('.line');
+  const line = /** @type {Element} */ (e.target).closest('.line');
   if (!line || state.generating) return;
   const pfx = line.querySelector('.prefix.ai');
   if (!pfx) return;
@@ -141,10 +143,11 @@ pwaDismiss.addEventListener('click', (e) => {
   localStorage.setItem('lllm-sh-pwa-dismissed', '1');
 });
 
+/** @type {BeforeInstallPromptEvent | null} */
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
-  deferredInstallPrompt = e;
+  deferredInstallPrompt = /** @type {BeforeInstallPromptEvent} */ (e);
   if (!localStorage.getItem('lllm-sh-pwa-dismissed')) {
     pwaBanner.classList.add('visible');
     pwaBanner.querySelector('span').textContent = 'Install as app for offline use';
@@ -160,7 +163,10 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (navigator.gpu) {
     try {
       const adapter = await navigator.gpu.requestAdapter();
-      if (adapter) state.hasWebGPU = true;
+      if (adapter) {
+        state.hasWebGPU = true;
+        state.hasShaderF16 = adapter.features.has('shader-f16');
+      }
     } catch (e) { console.warn('WebGPU detection failed:', e); }
   }
 
@@ -173,9 +179,13 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (state.currentRuntime === 'webgpu' && !state.hasWebGPU) {
     state.currentRuntime = 'wllama';
   }
-  // Clamp model index to current catalog
-  const catalogLen = MODELS[state.currentRuntime].length;
-  if (state.currentModelIndex >= catalogLen) state.currentModelIndex = Math.min(1, catalogLen - 1);
+  // Resolve the saved model by id (survives catalog reorders and runtime
+  // fallback); fall back to the default if it's not in this runtime's catalog.
+  const catalog = MODELS[state.currentRuntime];
+  const savedId = localStorage.getItem('lllm-sh-model-id');
+  const byId = savedId ? catalog.findIndex((m) => m.value === savedId) : -1;
+  if (byId >= 0) state.currentModelIndex = byId;
+  else if (savedId || state.currentModelIndex >= catalog.length) state.currentModelIndex = Math.min(1, catalog.length - 1);
 
   // Restore previous threads (model not required)
   loadHistory();
@@ -212,5 +222,17 @@ window.addEventListener('beforeinstallprompt', (e) => {
 
 /* ── Service Worker ── */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch((e) => { console.warn('SW registration failed:', e); });
+  // Relative path so the app works under a subpath (GitHub Pages: /lllm-sh/).
+  navigator.serviceWorker.register('sw.js').catch((e) => { console.warn('SW registration failed:', e); });
+
+  // Hosts that can't send COOP/COEP (GitHub Pages) get them injected by sw.js.
+  // The first visit isn't SW-controlled yet, so reload once when it takes over.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (self.crossOriginIsolated) return;
+    try {
+      if (sessionStorage.getItem('lllm-sh-coi-reload')) return;
+      sessionStorage.setItem('lllm-sh-coi-reload', '1');
+    } catch (e) { return; }
+    location.reload();
+  });
 }

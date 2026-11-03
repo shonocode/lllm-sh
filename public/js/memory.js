@@ -8,6 +8,7 @@ const MEMORY_KEY = 'lllm-sh-memory';
 const PERSONAS_KEY = 'lllm-sh-personas';
 const ACTIVE_PERSONA_KEY = 'lllm-sh-active-persona';
 
+/** @type {Record<string, string>} */
 const BUILTIN_PERSONAS = {
   default: DEFAULT_SYSTEM_PROMPT,
   coder: 'You are a senior software engineer. Reply with terse, correct code. Explain only when asked. Prefer modern idioms.',
@@ -22,10 +23,12 @@ export function loadMemory() {
   } catch { return []; }
 }
 
+/** @param {string[]} items */
 export function saveMemory(items) {
   localStorage.setItem(MEMORY_KEY, JSON.stringify(items));
 }
 
+/** @param {string} text */
 export function addMemory(text) {
   const items = loadMemory();
   items.push(text);
@@ -33,6 +36,7 @@ export function addMemory(text) {
   return items;
 }
 
+/** @param {number} index @returns {string | null} */
 export function removeMemory(index) {
   const items = loadMemory();
   if (index < 0 || index >= items.length) return null;
@@ -52,8 +56,10 @@ export function loadPersonas() {
   } catch { return { ...BUILTIN_PERSONAS }; }
 }
 
+/** @param {Record<string, string>} map persona name → system prompt */
 export function saveUserPersonas(map) {
   // Strip out builtins so we don't double-store
+  /** @type {Record<string, string>} */
   const userOnly = {};
   for (const [k, v] of Object.entries(map)) {
     if (!(k in BUILTIN_PERSONAS) || BUILTIN_PERSONAS[k] !== v) userOnly[k] = v;
@@ -61,6 +67,7 @@ export function saveUserPersonas(map) {
   localStorage.setItem(PERSONAS_KEY, JSON.stringify(userOnly));
 }
 
+/** @param {string} name */
 export function isBuiltinPersona(name) {
   return name in BUILTIN_PERSONAS;
 }
@@ -69,6 +76,7 @@ export function getActivePersonaName() {
   return localStorage.getItem(ACTIVE_PERSONA_KEY) || null;
 }
 
+/** @param {string | null} name */
 export function setActivePersona(name) {
   if (name) localStorage.setItem(ACTIVE_PERSONA_KEY, name);
   else localStorage.removeItem(ACTIVE_PERSONA_KEY);
