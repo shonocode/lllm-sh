@@ -212,5 +212,17 @@ window.addEventListener('beforeinstallprompt', (e) => {
 
 /* ── Service Worker ── */
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js').catch((e) => { console.warn('SW registration failed:', e); });
+  // Relative path so the app works under a subpath (GitHub Pages: /lllm-sh/).
+  navigator.serviceWorker.register('sw.js').catch((e) => { console.warn('SW registration failed:', e); });
+
+  // Hosts that can't send COOP/COEP (GitHub Pages) get them injected by sw.js.
+  // The first visit isn't SW-controlled yet, so reload once when it takes over.
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (self.crossOriginIsolated) return;
+    try {
+      if (sessionStorage.getItem('lllm-sh-coi-reload')) return;
+      sessionStorage.setItem('lllm-sh-coi-reload', '1');
+    } catch (e) { return; }
+    location.reload();
+  });
 }

@@ -105,7 +105,13 @@ The project is a static site under `public/` and deploys cleanly to Cloudflare P
 npm run deploy
 ```
 
-Or drop `public/` onto any static host (Netlify, Vercel, GitHub Pages, etc.) — there is no server-side component.
+### GitHub Pages
+
+`.github/workflows/pages.yml` publishes `public/` on every push to `main`. One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**. The site is served at `https://<user>.github.io/<repo>/`; all asset paths are relative, so the subpath works.
+
+GitHub Pages can't send custom headers, so the service worker injects COOP/COEP into the page response and the app reloads once on first visit to become cross-origin isolated (needed for multi-thread wllama).
+
+Or drop `public/` onto any other static host (Netlify, Vercel, etc.) — there is no server-side component.
 
 ## Tech notes
 
