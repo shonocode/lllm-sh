@@ -82,9 +82,9 @@ public/
   inside a string) inside the wrapping `<script>` will terminate it early.
   Use the `safeCodeLiteral` pattern that escapes `</script>` and `</!--`.
 
-- **Relative paths only.** The site is also served from a subpath on GitHub
-  Pages (`/lllm-sh/`). Never reference same-origin assets as `/foo` — use
-  `foo` / `./foo` in HTML, the manifest, `sw.js` and `fetch`/`register` calls.
+- **Relative paths only.** Keep the site portable to subpath hosting. Never
+  reference same-origin assets as `/foo` — use `foo` / `./foo` in HTML, the
+  manifest, `sw.js` and `fetch`/`register` calls.
 
 ## How to add things
 
