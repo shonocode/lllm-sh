@@ -2,6 +2,8 @@
    - wllama: OPFS via wllama.cacheManager (delete by URL)
    - web-llm: IndexedDB/Cache API via deleteModelAllInfoInCache (delete by modelId) */
 
+import { WEBLLM_CDN, resolveWebgpuModelId } from './state.js';
+
 const WLLAMA_CDN_BASE = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@2.3.7/esm/';
 const WLLAMA_CONFIG = {
   'single-thread/wllama.wasm': WLLAMA_CDN_BASE + 'single-thread/wllama.wasm',
@@ -19,7 +21,12 @@ async function getWllamaCacheManager() {
 }
 
 async function getWebllmCacheUtil() {
-  return await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm');
+  return await import(WEBLLM_CDN);
+}
+
+// Same id the loader actually downloaded (q4f16 → q4f32 on GPUs without shader-f16).
+function webgpuId(webllm, value) {
+  return resolveWebgpuModelId(value, webllm.prebuiltAppConfig.model_list);
 }
 
 export async function isModelCached(runtime, modelValue) {
@@ -31,7 +38,7 @@ export async function isModelCached(runtime, modelValue) {
     }
     if (runtime === 'webgpu') {
       const webllm = await getWebllmCacheUtil();
-      return await webllm.hasModelInCache(modelValue);
+      return await webllm.hasModelInCache(webgpuId(webllm, modelValue));
     }
   } catch (e) { console.warn('isModelCached:', e); }
   return false;
@@ -71,7 +78,7 @@ export async function listCachedModels(runtime, catalog) {
     for (let i = 0; i < catalog.length; i++) {
       const m = catalog[i];
       try {
-        if (await webllm.hasModelInCache(m.value)) {
+        if (await webllm.hasModelInCache(webgpuId(webllm, m.value))) {
           result.push({ index: i, name: m.name, url: m.value, bytes: 0 });
         }
       } catch (e) { console.debug('hasModelInCache failed for', m.value, e); }
@@ -88,7 +95,7 @@ export async function deleteCachedModel(runtime, modelValue) {
   }
   if (runtime === 'webgpu') {
     const webllm = await getWebllmCacheUtil();
-    await webllm.deleteModelAllInfoInCache(modelValue);
+    await webllm.deleteModelAllInfoInCache(webgpuId(webllm, modelValue));
     return;
   }
 }

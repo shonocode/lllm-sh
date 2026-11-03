@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lllm-sh-v3';
+const CACHE_NAME = 'lllm-sh-v4';
 
 const PRECACHE_URLS = [
   './',
@@ -55,16 +55,25 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for same-origin HTML/JS (deploys take effect immediately)
-  if (url.origin === self.location.origin && (url.pathname.endsWith('.js') || url.pathname.endsWith('/') || url.pathname.endsWith('.html'))) {
+  // Network-first for the same-origin app shell (deploys take effect immediately)
+  const isShell = url.origin === self.location.origin &&
+    (event.request.mode === 'navigate' || /(\/|\.html|\.js|\.css|\.json)$/.test(url.pathname));
+  if (isShell) {
     const isPage = event.request.mode === 'navigate';
     event.respondWith(
       fetch(event.request).then((response) => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        // Never let a 404/500 mid-deploy overwrite the good cached copy.
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
         return response;
-      }).catch(() => caches.match(event.request))
-        .then((response) => (isPage ? withIsolationHeaders(response) : response))
+      }).catch(() =>
+        // Offline: exact match, else (for page loads like ?utm=… or index.html) the app shell.
+        caches.match(event.request, { ignoreSearch: isPage })
+          .then((cached) => cached || (isPage ? caches.match('./') : undefined))
+          .then((cached) => cached || Response.error())
+      ).then((response) => (isPage ? withIsolationHeaders(response) : response))
     );
     return;
   }

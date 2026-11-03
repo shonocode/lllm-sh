@@ -71,14 +71,11 @@ export async function runBenchmark() {
   log('system', '  memory:   ' + updatePerfMem());
   log('system', '  platform: ' + (isIOS ? 'iOS' : (isMobile ? 'Android' : 'Desktop')));
   logRaw('');
-
-  state.generating = false;
-  chatInput.disabled = false;
-  chatInput.focus();
 }
 
 export async function runDiff(idxA, idxB) {
   if (state.generating) { log('error', 'already generating.'); return; }
+  if (state.loading) { log('error', 'a model is still loading.'); return; }
   if (state.currentRuntime !== 'wllama') {
     log('error', '/diff only works with wllama runtime (model swapping needed).');
     return;
@@ -99,42 +96,52 @@ export async function runDiff(idxA, idxB) {
 
   state.generating = true;
   chatInput.disabled = true;
-
   const results = [];
+  try {
+    for (const [label, idx, model] of [['A', idxA, modelA], ['B', idxB, modelB]]) {
+      log('system', 'loading ' + model.name + '...');
+      await unloadCurrentModel();
+      state.currentModelIndex = idx;
+      await loadModel();
+      // loadModel re-enables input on success; keep it locked for the run.
+      state.generating = true;
+      chatInput.disabled = true;
 
-  for (const [label, idx, model] of [['A', idxA, modelA], ['B', idxB, modelB]]) {
-    log('system', 'loading ' + model.name + '...');
-    await unloadCurrentModel();
-    state.currentModelIndex = idx;
-    await loadModel();
+      if (!state.ready || !state.wllamaInstance) {
+        log('error', 'failed to load ' + model.name);
+        results.push({ name: model.name, text: '(failed)', tokens: 0, tps: 0, time: 0 });
+        continue;
+      }
 
-    if (!state.wllamaInstance) {
-      log('error', 'failed to load ' + model.name);
-      results.push({ name: model.name, text: '(failed)', tokens: 0, tps: 0, time: 0 });
-      continue;
+      const diffMessages = [
+        { role: 'system', content: 'You are a helpful assistant. Be concise.' },
+        { role: 'user', content: diffPrompt },
+      ];
+      let tokenCount = 0;
+      const t0 = performance.now();
+
+      const line = startAiLine();
+      const pfx = line.querySelector('.prefix');
+      if (pfx) pfx.textContent = 'ai[' + label + ']>';
+
+      const fullText = await runWllamaCompletion(state.wllamaInstance, diffMessages, {
+        maxTokens: 128,
+        cancellable: false,
+        onToken: (decoded) => { tokenCount++; appendAiToken(decoded); },
+      });
+      finishAiLine();
+
+      const elapsed = (performance.now() - t0) / 1000;
+      const tps = tokenCount > 0 ? (tokenCount / elapsed).toFixed(1) : '?';
+      results.push({ name: model.name, text: fullText, tokens: tokenCount, tps, time: elapsed.toFixed(1) });
     }
-
-    const diffMessages = [
-      { role: 'system', content: 'You are a helpful assistant. Be concise.' },
-      { role: 'user', content: diffPrompt },
-    ];
-    let tokenCount = 0;
-    const t0 = performance.now();
-
-    const line = startAiLine();
-    const pfx = line.querySelector('.prefix');
-    if (pfx) pfx.textContent = 'ai[' + label + ']>';
-
-    const fullText = await runWllamaCompletion(state.wllamaInstance, diffMessages, {
-      maxTokens: 128,
-      cancellable: false,
-      onToken: (decoded) => { tokenCount++; appendAiToken(decoded); },
-    });
+  } catch (err) {
     finishAiLine();
-
-    const elapsed = (performance.now() - t0) / 1000;
-    const tps = tokenCount > 0 ? (tokenCount / elapsed).toFixed(1) : '?';
-    results.push({ name: model.name, text: fullText, tokens: tokenCount, tps, time: elapsed.toFixed(1) });
+    log('error', 'diff error: ' + err.message);
+  } finally {
+    state.generating = false;
+    chatInput.disabled = false;
+    chatInput.focus();
   }
 
   logRaw('');
@@ -143,8 +150,4 @@ export async function runDiff(idxA, idxB) {
     log('system', '  ' + r.name + ': ' + r.tokens + ' tokens, ' + r.tps + ' tok/s, ' + r.time + 's');
   }
   logRaw('');
-
-  state.generating = false;
-  chatInput.disabled = false;
-  chatInput.focus();
 }

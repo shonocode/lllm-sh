@@ -54,7 +54,8 @@ function buildArtifactIframe(lang, code) {
   } else { // js / javascript
     iframe.sandbox = 'allow-scripts';
     // Escape sequences that would prematurely terminate the wrapping <script> tag.
-    const safeCodeLiteral = JSON.stringify(code).replace(/<\/(script|!--)/gi, '<\\/$1');
+    // Escape every '<' so no `</script>` or `<!--` can reach the HTML parser.
+    const safeCodeLiteral = JSON.stringify(code).replace(/</g, '\\u003c');
     const closeScript = '<' + '/script>';
     const wrapped = `<!doctype html><html><head><style>body{margin:0;font-family:monospace;background:#000;color:#32ff00;padding:8px;font-size:12px;line-height:1.4}#o{margin:0;white-space:pre-wrap;word-break:break-word}</style></head><body><pre id="o"></pre><script>
 (function(){
@@ -205,7 +206,11 @@ export function logAi(text) {
 export function appendAiToken(text) {
   if (!currentAiContent) startAiLine();
   currentAiText += text;
-  currentAiContent.textContent += text;
+  // Append to one text node instead of `textContent +=` (which rebuilds the
+  // whole node per token → quadratic on long replies).
+  const node = currentAiContent.lastChild;
+  if (node && node.nodeType === Node.TEXT_NODE) node.appendData(text);
+  else currentAiContent.appendChild(document.createTextNode(text));
   scrollToBottom();
 }
 
@@ -225,8 +230,12 @@ export function finishAiLine() {
   currentAiText = '';
 }
 
+let scrollPending = false;
 export function scrollToBottom() {
+  if (scrollPending) return;
+  scrollPending = true;
   requestAnimationFrame(() => {
+    scrollPending = false;
     terminal.scrollTop = terminal.scrollHeight;
   });
 }

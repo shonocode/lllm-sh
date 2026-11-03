@@ -24,6 +24,18 @@ export function parseSizeMB(s) {
   return n;
 }
 
+// Pin web-llm so model_ids in models.js stay valid and the SW's cache-first
+// CDN copy can't drift from what the catalog was checked against.
+export const WEBLLM_CDN = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.87/+esm';
+
+// q4f16 kernels need the WebGPU `shader-f16` feature. Without it, use the
+// q4f32 build of the same model when web-llm ships one.
+export function resolveWebgpuModelId(id, modelList) {
+  if (state.hasShaderF16 || !id.includes('q4f16_1')) return id;
+  const alt = id.replace('q4f16_1', 'q4f32_1');
+  return modelList.some((m) => m.model_id === alt) ? alt : id;
+}
+
 // Heuristic device capability — used to flag models that likely won't run.
 // Numbers are quantized model file size in MB; actual RAM use is ~1.2-1.5x.
 export function maxModelMBFor(runtime, hasWebGPU) {
@@ -60,6 +72,7 @@ export const state = {
   systemPrompt: localStorage.getItem('lllm-sh-system-prompt') || DEFAULT_SYSTEM_PROMPT,
   messages: [{ role: 'system', content: localStorage.getItem('lllm-sh-system-prompt') || DEFAULT_SYSTEM_PROMPT }],
   ready: false,
+  loading: false,
   generating: false,
   cancelRequested: false,
   abortController: null,
@@ -77,6 +90,7 @@ export const state = {
     return Number.isFinite(n) && n > 0 ? n : null;
   })(),
   hasWebGPU: false,
+  hasShaderF16: false,
   sampling: (() => {
     const t = parseFloat(localStorage.getItem('lllm-sh-temp'));
     const p = parseFloat(localStorage.getItem('lllm-sh-top-p'));

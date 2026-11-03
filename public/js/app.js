@@ -160,7 +160,10 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (navigator.gpu) {
     try {
       const adapter = await navigator.gpu.requestAdapter();
-      if (adapter) state.hasWebGPU = true;
+      if (adapter) {
+        state.hasWebGPU = true;
+        state.hasShaderF16 = adapter.features.has('shader-f16');
+      }
     } catch (e) { console.warn('WebGPU detection failed:', e); }
   }
 
@@ -173,9 +176,13 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (state.currentRuntime === 'webgpu' && !state.hasWebGPU) {
     state.currentRuntime = 'wllama';
   }
-  // Clamp model index to current catalog
-  const catalogLen = MODELS[state.currentRuntime].length;
-  if (state.currentModelIndex >= catalogLen) state.currentModelIndex = Math.min(1, catalogLen - 1);
+  // Resolve the saved model by id (survives catalog reorders and runtime
+  // fallback); fall back to the default if it's not in this runtime's catalog.
+  const catalog = MODELS[state.currentRuntime];
+  const savedId = localStorage.getItem('lllm-sh-model-id');
+  const byId = savedId ? catalog.findIndex((m) => m.value === savedId) : -1;
+  if (byId >= 0) state.currentModelIndex = byId;
+  else if (savedId || state.currentModelIndex >= catalog.length) state.currentModelIndex = Math.min(1, catalog.length - 1);
 
   // Restore previous threads (model not required)
   loadHistory();

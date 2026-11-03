@@ -14,9 +14,20 @@ export function loadThreads() {
   activeThreadId = localStorage.getItem(ACTIVE_THREAD_KEY);
 }
 
+let quotaWarned = false;
 export function saveThreads() {
-  localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
-  if (activeThreadId) localStorage.setItem(ACTIVE_THREAD_KEY, activeThreadId);
+  try {
+    localStorage.setItem(THREADS_KEY, JSON.stringify(threads));
+    if (activeThreadId) localStorage.setItem(ACTIVE_THREAD_KEY, activeThreadId);
+    quotaWarned = false;
+  } catch (e) {
+    // Quota exceeded (big attachments) — keep running, the in-memory thread is intact.
+    console.warn('saveThreads:', e);
+    if (!quotaWarned) {
+      quotaWarned = true;
+      log('error', 'storage full — conversation not saved. /delete old threads or /export this one.');
+    }
+  }
 }
 
 export function getActiveThread() {
@@ -133,12 +144,15 @@ export function forkActiveThread(keepCount) {
   return fork;
 }
 
-export function trimHistory() {
+// What actually goes to the model: a single leading system message (base
+// prompt + any /compact summaries — web-llm rejects non-leading system
+// messages) followed by the most recent turns. Never mutates state.messages,
+// so the saved thread keeps its full history.
+export function buildModelMessages() {
   const maxTurns = isIOS ? 4 : 10;
-  const nonSystem = state.messages.filter(m => m.role !== 'system');
-  if (nonSystem.length > maxTurns) {
-    const keep = nonSystem.slice(-maxTurns);
-    state.messages.length = 0;
-    state.messages.push({ role: 'system', content: state.systemPrompt }, ...keep);
-  }
+  const system = state.messages.filter(m => m.role === 'system').map(m => m.content).filter(Boolean).join('\n\n');
+  const turns = state.messages.filter(m => m.role !== 'system').slice(-maxTurns);
+  // Chat templates expect the first turn to be the user's.
+  while (turns.length && turns[0].role !== 'user') turns.shift();
+  return [{ role: 'system', content: system }, ...turns];
 }

@@ -17,7 +17,7 @@ A serverless, terminal-style LLM chat client that runs **entirely in the browser
 - **Two runtimes** — pick the one that fits your device:
   - **wllama** (CPU/WASM via [@wllama/wllama](https://github.com/ngxson/wllama)) — works everywhere, including iOS Safari
   - **web-llm** (WebGPU via [@mlc-ai/web-llm](https://github.com/mlc-ai/web-llm)) — much faster on machines with WebGPU
-- **Multiple models** — SmolLM2/3, Qwen2.5 (incl. Coder), Qwen3, Gemma 2/3, Llama 3.2, Phi-3.5/4, Mistral 7B, **DeepSeek-R1-Distill** (reasoning), and more
+- **Multiple models** — SmolLM2/3, Qwen2.5 (incl. Coder), Qwen3, Qwen3.5, Gemma 2/3/4, Llama 3.2, **DeepSeek-R1-Distill** (reasoning), and more; Phi-3.5, Mistral 7B and Llama-3-8B on WebGPU
 - **Custom GGUF** — load any GGUF from a URL with `/model <url>` (wllama runtime); persisted across sessions
 - **Reasoning model support** — `<think>...</think>` blocks rendered as a dimmed thinking trace
 - **Markdown rendering** — fenced code blocks, inline code, bold are styled in the terminal aesthetic
@@ -44,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:8788`. The default model (Qwen2.5-0.5B, ~400MB) is **not** loaded automatically — type `/load` to download it, or `/model` to pick a smaller one first. Subsequent loads are instant since the model is cached in IndexedDB.
+Open `http://localhost:8788`. The default model (Qwen3-0.6B, ~400MB) is **not** loaded automatically — type `/load` to download it, or `/model` to pick a smaller one first. Subsequent loads are instant since the model is cached in IndexedDB.
 
 ## Commands
 
@@ -113,7 +113,7 @@ Other static hosts work too (no server-side component). `public/_headers` sets C
 
 - **Module layout** — pure ES modules under `public/js/` (`app`, `state`, `terminal`, `runtime`, `commands`, `threads`, `bench`, `perf`, `models`); no build step
 - **Service worker** — network-first for app shell, cache-first for CDN assets, bypass for HuggingFace model downloads (wllama manages those in IndexedDB itself)
-- **iOS quirks** — context window and batch sizes are reduced on iOS to avoid Safari memory limits; history is trimmed more aggressively
+- **iOS quirks** — context window and batch sizes are reduced on iOS to avoid Safari memory limits; fewer recent turns are sent to the model (the saved thread keeps full history)
 - **Multi-thread wllama** — `public/_headers` sets COOP/COEP (`credentialless`) so the page is cross-origin isolated and wllama can use `SharedArrayBuffer` threads. On other static hosts, set the same two headers or wllama runs single-threaded (the load log shows which)
 - **Split GGUF** — wllama reads each file into one ArrayBuffer (~2GB cap). For bigger models, split with `llama-gguf-split --split-max-size 512M` and pass the first shard (`...-00001-of-0000N.gguf`) to `/model <url>`; wllama fetches the remaining shards automatically
 - **Context window** — `/ctx <n>` sets `n_ctx` (wllama) / `context_window_size` (web-llm); the KV cache scales linearly with it. Mobile WebGPU defaults to 2048

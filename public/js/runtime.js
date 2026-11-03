@@ -1,8 +1,8 @@
-import { state, isIOS, chatInput, terminal, parseSizeMB, maxModelMBFor, ctxSizeFor, isSplitGGUF, WLLAMA_SINGLE_FILE_MAX_MB } from './state.js';
+import { state, isIOS, chatInput, terminal, parseSizeMB, maxModelMBFor, ctxSizeFor, isSplitGGUF, WLLAMA_SINGLE_FILE_MAX_MB, WEBLLM_CDN, resolveWebgpuModelId } from './state.js';
 import { MODELS, loadCustomModels, saveCustomModels } from './models.js';
 import { log, logAi, startAiLine, appendAiToken, finishAiLine, setStatus } from './terminal.js';
 import { perf, perfLoadDone, perfGenStart, perfGenToken, perfGenDone } from './perf.js';
-import { saveHistory, updateThreadTitle, trimHistory, getActiveThread, saveThreads } from './threads.js';
+import { saveHistory, updateThreadTitle, buildModelMessages, getActiveThread, saveThreads } from './threads.js';
 import { syncSystemPrompt } from './memory.js';
 import { speak } from './voice.js';
 
@@ -11,6 +11,9 @@ import { speak } from './voice.js';
 function persistRuntimeSelection() {
   localStorage.setItem('lllm-sh-runtime', state.currentRuntime);
   localStorage.setItem('lllm-sh-model-index', String(state.currentModelIndex));
+  // Index alone breaks when the catalog is reordered; the id survives that.
+  const m = MODELS[state.currentRuntime][state.currentModelIndex];
+  if (m) localStorage.setItem('lllm-sh-model-id', m.value);
 }
 
 export async function unloadCurrentModel() {
@@ -28,11 +31,17 @@ export async function unloadCurrentModel() {
 }
 
 export async function runWllamaCompletion(instance, messages, { maxTokens = 512, onToken, cancellable = true } = {}) {
-  let prompt = '';
-  for (const m of messages) {
-    prompt += '<|im_start|>' + m.role + '\n' + m.content + '<|im_end|>\n';
+  // Use the chat template embedded in the GGUF (Gemma, Llama, Phi, … all
+  // differ); fall back to ChatML only if the model has none.
+  let prompt;
+  try {
+    prompt = await instance.formatChat(messages, true);
+  } catch (e) {
+    console.warn('formatChat failed, using ChatML:', e);
+    prompt = '';
+    for (const m of messages) prompt += '<|im_start|>' + m.role + '\n' + m.content + '<|im_end|>\n';
+    prompt += '<|im_start|>assistant\n';
   }
-  prompt += '<|im_start|>assistant\n';
 
   const decoder = new TextDecoder('utf-8', { fatal: false });
   let fullText = '';
@@ -99,15 +108,18 @@ function markModelReady() {
 
 async function loadWebGPUModel(modelUrl, modelName, modelSize) {
   log('system', 'loading web-llm...');
-  const { CreateMLCEngine } = await import('https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm/+esm');
+  const { CreateMLCEngine, prebuiltAppConfig } = await import(WEBLLM_CDN);
 
-  const progressLine = log('system', 'downloading ' + modelName + ' ' + modelSize + '...');
+  const modelId = resolveWebgpuModelId(modelUrl, prebuiltAppConfig.model_list);
+  if (modelId !== modelUrl) log('system', 'GPU lacks shader-f16 — using ' + modelId);
+
+  const progressLine = log('system', 'downloading ' + modelName + ' (needs ' + modelSize + ' VRAM)...');
 
   // Shrinking the context window shrinks the KV cache allocated in VRAM.
   const ctx = ctxSizeFor('webgpu');
   const chatOpts = ctx ? { context_window_size: ctx } : undefined;
 
-  state.webgpuPipe = await CreateMLCEngine(modelUrl, {
+  state.webgpuPipe = await CreateMLCEngine(modelId, {
     initProgressCallback: (report) => {
       const pct = report.progress ? Math.round(report.progress * 100) : 0;
       updateLineProgress(progressLine, 'downloading ' + modelName + '... ' + pct + '%');
@@ -150,6 +162,7 @@ async function loadWllamaModel() {
   const kvQuantConfig = { cache_type_k: 'q8_0', cache_type_v: 'q8_0', flash_attn: true };
 
   let cached = null;
+  let downloaded = false;
   let progressLine = null;
   const tryLoad = async (extraConfig) => {
     state.wllamaInstance = new Wllama(CONFIG_PATHS, {
@@ -166,6 +179,7 @@ async function loadWllamaModel() {
       ...baseConfig,
       ...extraConfig,
       progressCallback: ({ loaded, total }) => {
+        if (total > 0 && loaded >= total) downloaded = true;
         if (total > 0) {
           const pct = Math.round((loaded / total) * 100);
           updateLineProgress(progressLine, (cached ? 'loading' : 'downloading') + ' ' + wllamaName + '... ' + pct + '%');
@@ -178,7 +192,10 @@ async function loadWllamaModel() {
   try {
     await tryLoad(kvQuantConfig);
   } catch (err) {
-    // Some model architectures reject quantized KV / flash attn — retry with defaults.
+    // Some model architectures reject quantized KV / flash attn — retry with
+    // defaults, but only once the file is local (a network error would just
+    // fail again after a second full download).
+    if (!cached && !downloaded) throw err;
     console.warn('wllama load with q8_0 KV failed, retrying with f16:', err);
     try { await state.wllamaInstance.exit(); } catch (e) { console.debug('wllama exit:', e); }
     state.wllamaInstance = null;
@@ -196,6 +213,16 @@ async function loadWllamaModel() {
 }
 
 export async function loadModel() {
+  if (state.loading) { log('error', 'a model is already loading.'); return; }
+  state.loading = true;
+  try {
+    await loadModelInner();
+  } finally {
+    state.loading = false;
+  }
+}
+
+async function loadModelInner() {
   const catalog = MODELS[state.currentRuntime];
   const model = catalog[state.currentModelIndex];
 
@@ -223,12 +250,19 @@ export async function loadModel() {
       state.webgpuPipe = null;
       state.currentRuntime = 'wllama';
       state.currentModelIndex = 1;
+      persistRuntimeSelection();
     }
   }
 
   try {
     await loadWllamaModel();
   } catch (err) {
+    // Don't leave a half-initialised instance around: it leaks memory and
+    // makes `state.wllamaInstance` look loaded to /diff and friends.
+    if (state.wllamaInstance) {
+      try { await state.wllamaInstance.exit(); } catch (e) { console.debug('wllama exit:', e); }
+      state.wllamaInstance = null;
+    }
     log('error', err.message);
     log('system', 'load failed. try /model to pick another model.');
     setStatus('offline', 'error');
@@ -236,6 +270,7 @@ export async function loadModel() {
 }
 
 export async function switchModel(index) {
+  if (state.loading) { log('error', 'a model is still loading — wait for it to finish.'); return; }
   const catalog = MODELS[state.currentRuntime];
   if (index < 0 || index >= catalog.length) {
     log('error', 'invalid model number. type /model to see list.');
@@ -264,6 +299,7 @@ export async function switchModel(index) {
 }
 
 export async function switchRuntime(rt) {
+  if (state.loading) { log('error', 'a model is still loading — wait for it to finish.'); return; }
   if (rt !== 'wllama' && rt !== 'webgpu') {
     log('error', 'unknown runtime. use: wllama or webgpu');
     return;
@@ -295,6 +331,7 @@ export async function switchRuntime(rt) {
 }
 
 export async function loadCustomGGUF(url) {
+  if (state.loading) { log('error', 'a model is still loading — wait for it to finish.'); return; }
   if (!url.endsWith('.gguf')) {
     log('error', 'URL must point to a .gguf file.');
     return;
@@ -338,7 +375,7 @@ export async function generateWebGPU() {
   try {
     const opts = {
       stream: true,
-      messages: [...state.messages],
+      messages: buildModelMessages(),
       max_tokens: isIOS ? 256 : 512,
       temperature: state.sampling.temp,
       top_p: state.sampling.top_p,
@@ -373,7 +410,7 @@ export async function generateWebGPU() {
 export async function generateWllama() {
   perfGenStart();
   try {
-    const fullText = await runWllamaCompletion(state.wllamaInstance, state.messages, {
+    const fullText = await runWllamaCompletion(state.wllamaInstance, buildModelMessages(), {
       maxTokens: isIOS ? 256 : 512,
       onToken: (decoded) => { perfGenToken(); appendAiToken(decoded); },
     });
@@ -400,9 +437,8 @@ export async function sendMessage(text) {
   state.messages.push({ role: 'user', content: text });
 
   updateThreadTitle();
-  saveHistory();
-  trimHistory();
   syncSystemPrompt();
+  saveHistory();
 
   const ctx = getContextUsage();
   if (ctx.used > ctx.limit * 0.85) {
@@ -420,7 +456,7 @@ export async function sendMessage(text) {
 
 function estimateTokens() {
   let c = 0;
-  for (const m of state.messages) c += (m.content || '').length;
+  for (const m of buildModelMessages()) c += (m.content || '').length;
   return Math.ceil(c / 4);
 }
 
@@ -444,7 +480,9 @@ export async function compactConversation() {
   const recent = nonSystem.slice(-keepLast);
   if (older.length === 0) { log('system', 'already compact.'); return; }
 
-  const transcript = older.map((m) => (m.role === 'user' ? 'User: ' : 'Assistant: ') + m.content).join('\n\n');
+  // Carry earlier /compact summaries forward — they're replaced below.
+  const priorSummaries = state.messages.slice(1).filter((m) => m.role === 'system').map((m) => m.content);
+  const transcript = [...priorSummaries, ...older.map((m) => (m.role === 'user' ? 'User: ' : 'Assistant: ') + m.content)].join('\n\n');
   const summaryMessages = [
     { role: 'system', content: 'You are a precise summarizer. Output under 150 words capturing key facts, decisions, and unresolved questions. No commentary, no preamble.' },
     { role: 'user', content: 'Summarize this conversation:\n\n' + transcript },
@@ -508,7 +546,10 @@ export async function generateThreadTitle() {
     { role: 'user', content: 'User: ' + firstUser.content.slice(0, 300) + '\nAssistant: ' + firstAssistant.content.slice(0, 400) + '\n\nTitle:' },
   ];
 
+  // Lock input: Enter during `generating` means "cancel" in app.js, which
+  // would swallow the user's next message.
   state.generating = true;
+  chatInput.disabled = true;
   let title = '';
   try {
     if (state.webgpuPipe) {
@@ -525,6 +566,8 @@ export async function generateThreadTitle() {
     console.warn('title gen:', e);
   } finally {
     state.generating = false;
+    chatInput.disabled = false;
+    chatInput.focus();
   }
 
   title = (title || '').trim().split('\n')[0].replace(/^["']|["']$/g, '').replace(/[.!?,;:]$/, '');
@@ -548,13 +591,11 @@ export async function regenerateLast() {
   if (state.generating) { log('error', 'already generating.'); return; }
   if (!state.ready) { log('error', 'model not loaded yet.'); return; }
 
-  let lastAssistantIdx = -1;
-  for (let i = state.messages.length - 1; i >= 0; i--) {
-    if (state.messages[i].role === 'assistant') { lastAssistantIdx = i; break; }
-  }
-  if (lastAssistantIdx < 0) { log('error', 'no assistant message to regenerate.'); return; }
-
-  state.messages.splice(lastAssistantIdx);
+  const last = state.messages[state.messages.length - 1];
+  if (!last || last.role === 'system') { log('error', 'no assistant message to regenerate.'); return; }
+  // If the last turn is an unanswered user message (failed/cancelled), answer
+  // it; otherwise drop the trailing assistant reply and regenerate it.
+  if (last.role === 'assistant') state.messages.pop();
   saveHistory();
   syncSystemPrompt();
 

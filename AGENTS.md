@@ -95,7 +95,10 @@ public/
   `{ value: <gguf url>, name, size: '~XGB', tags?: ['reasoning', 'code'] }`.
   No code changes needed — `showModels()` will pick it up.
 - **A new web-llm model:** push to `MODELS.webgpu` with `value` set to the
-  exact MLC `model_id` from web-llm's `prebuiltAppConfig`.
+  exact MLC `model_id` from web-llm's `prebuiltAppConfig` for the version pinned
+  in `WEBLLM_CDN` (state.js), and `size` set to its `vram_required_MB`.
+- **wllama models must be single files ≤2GB** (ArrayBuffer cap) or a split
+  GGUF (`-00001-of-0000N.gguf`).
 - **A new module:** create the file, add it to `PRECACHE_URLS` in `sw.js`,
   bump `CACHE_NAME`. Cross-import only what you need to keep the dep graph
   shallow (state ↔ terminal ↔ runtime ↔ commands is the typical path).
